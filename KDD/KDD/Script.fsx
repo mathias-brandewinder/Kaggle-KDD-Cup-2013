@@ -43,46 +43,14 @@ let authorsOfPaper =
     |> Seq.map (fun (paperId, data) ->
         paperId, data |> Seq.map (fun x -> x.AuthorId) |> Set.ofSeq)
     |> Map.ofSeq
-
-//    authors 
-//    |> Array.map (fun authorId ->
-//        authorId,
-//        papersAuthors 
-//           |> Array.filter (fun x -> x.AuthorId = authorId)
-//           |> Array.map (fun x -> x.PaperId)
-//           |> Set.ofArray)
-
-//let authorsOfPaper =
-//    papersAuthors 
-//    |> Seq.groupBy (fun x -> x.PaperId)
-//    |> Seq.map (fun paperId, data ->
-//        data.
-//        |> Array.filter (fun x -> x.AuthorId = authorId)
-//        |> Array.map (fun x -> x.PaperId)
-//        |> Set.ofArray
     
 let coAuthors (authorId:int) =
-    let papers = papersByAuthor.[authorId]
-    let coAuthors = papers |> Seq.map (fun paperId -> authorsOfPaper.[paperId])
-    Set.unionMany coAuthors
-
-//    let papers = 
-//        papersAuthors 
-//        |> Array.filter (fun x -> x.AuthorId = authorId)
-//        |> Array.map (fun x -> x.PaperId)
-//        |> Set.ofArray   
-//    papersAuthors
-//    |> Array.filter (fun x -> papers.Contains x.PaperId)
-//    |> Array.map (fun x -> x.AuthorId)
-//    |> Set.ofArray 
-
-let dupes = seq {
-    for group in groups do
-        let (name, data) = group
-        let akas = data |> Seq.map (fun author -> author.AuthorId) |> Seq.toArray
-        let line = String.Join(" ", akas)
-        for aka in akas do
-            yield sprintf "%i, %s" aka line }
+    let found = Map.tryFind authorId papersByAuthor
+    match found with
+    | None -> Set.empty
+    | Some(papers) -> 
+        let coAuthors = papers |> Seq.map (fun paperId -> authorsOfPaper.[paperId])
+        Set.unionMany coAuthors
 
 let merge (data: (int*Set<int>)[]) =
     seq {

@@ -48,3 +48,11 @@ let coAuthors (authorId:int) =
     |> Array.map (fun x -> x.AuthorId)
     |> Set.ofArray 
 
+authors.[0..20] 
+|> Array.map (fun a -> 
+    printfn "%i" (a.AuthorId) 
+    coAuthors (a.AuthorId));;
+
+papersAuthors 
+|> Array.filter (fun x -> x.AuthorId = 14)
+
