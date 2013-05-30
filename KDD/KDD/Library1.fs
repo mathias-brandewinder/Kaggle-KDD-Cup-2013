@@ -1,6 +1,7 @@
 ﻿namespace KDD
 
 type Author = { AuthorId:int; Name:string; Affiliation:string }
+type AuthorPaper = { AuthorId:int; PaperId:int }
 
 module Model =
 
