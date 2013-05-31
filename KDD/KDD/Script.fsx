@@ -10,12 +10,15 @@ open KDD.Model
 let authorsPath = @"Z:\Data\KDD-Cup\dataRev2\author.csv"
 let authorsArticlesPath = @"Z:\Data\KDD-Cup\dataRev2\paperauthor.csv"
 
+let cleanName (name:string) =
+    name.Replace(".", "").Replace("-", " ").ToLowerInvariant()
+
 let authors = 
     let data = parseCsv authorsPath
     data.[1..]
     |> Array.map (fun x ->
         { AuthorId = Convert.ToInt32(x.[0]);
-          Name = x.[1];
+          Name = cleanName x.[1];
           Affiliation = x.[2] })
 
 let papersAuthors =
@@ -28,7 +31,7 @@ let papersAuthors =
 let groups = 
     authors 
     |> Array.toSeq 
-    |> Seq.groupBy (fun x -> x.Name.ToLowerInvariant())
+    |> Seq.groupBy (fun x -> x.Name)
 
 let papersByAuthor =
     papersAuthors 
@@ -85,5 +88,5 @@ let smartDupes  = seq {
         for author in data do
             yield (formatAuthor author) }
 
-let submitPath = @"C:\users\mathias\desktop\submit2.csv"
+let submitPath = @"C:\users\mathias\desktop\submit3.csv"
 let submit = File.WriteAllLines(submitPath, (smartDupes |> Seq.toArray))    
