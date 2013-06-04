@@ -13,4 +13,3 @@ module Model =
         reader.TextFieldType <- FieldType.Delimited
         reader.SetDelimiters(",")
         [| while (not reader.EndOfData) do yield reader.ReadFields() |]   
-            
