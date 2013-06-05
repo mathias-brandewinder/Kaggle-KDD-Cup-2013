@@ -21,12 +21,25 @@ let vocabulary (text: string) =
     |> Set.ofSeq
 
 printfn "Reading authors"
-let authors = 
+let catalog = 
     let data = parseCsv authorsPath
     data.[1..]
     |> Array.map (fun x ->
         let id = Convert.ToInt32(x.[0])
-        let name = x.[1].ToLowerInvariant()
+        id,
+        { AuthorId = id;
+          Name = x.[1];
+          Affiliation = x.[2] })
+    |> Map.ofArray
+
+//catalog |> Seq.map (fun kv -> kv.Value.Name) |> Seq.countBy id |> Seq.sortBy (fun (n, c) -> -c)
+
+let authors = 
+    catalog
+    |> Seq.map (fun kv ->
+        let id = kv.Key
+        let auth = kv.Value
+        let name = auth.Name.ToLowerInvariant()
         let chunks = vocabulary name
         let initials = chunks |> Set.map (fun c -> c.[0])
         let usableChunks = chunks |> Set.filter (fun c -> c.Length > 1)
@@ -95,7 +108,20 @@ let levenshtein (src: string) (target: string) =
         Array.blit nxt 0 prev 0 (n+1)
     nxt.[n]
 
-let namesOverlap (n1:string Set) (n2: string Set) =
+let fastOverlap (id1:int) (id2:int) =
+    let in1, in2 = initials.[id1], initials.[id2]
+    if Set.isSubset in1 in2 || Set.isSubset in2 in1 
+    then
+        let n1, n2 = names.[id1], names.[id2]
+        let m1, m2 = if (Set.count n1 < Set.count n2) then (n1, n2) else (n2, n1)
+        if Set.isEmpty m1 then false
+        elif Set.isSubset m1 m2 then true
+        else false
+    else false
+        
+let findMatches (id:int) = authorIds |> Seq.filter (fun i -> fastOverlap i id) |> Seq.toList
+    
+let namesOverlap (n1:string Set) (n2: string Set) =    
     n1 
     |> Seq.map (fun chunk -> 
         n2 
