@@ -3,6 +3,8 @@
 #time
 
 open System
+open System.Text
+open System.Globalization
 open System.IO
 open System.Text.RegularExpressions
 open Microsoft.VisualBasic.FileIO
@@ -20,6 +22,25 @@ let vocabulary (text: string) =
     |> Seq.map (fun m -> m.Value)
     |> Set.ofSeq
 
+let cleanupDiacritics (text:string) =
+    let formD = text.Normalize(NormalizationForm.FormD)
+    let test = 
+        [| for c in formD do
+            let cat = CharUnicodeInfo.GetUnicodeCategory(c)
+            if (not (cat = UnicodeCategory.NonSpacingMark)) then yield c |]
+    String(test).Normalize(NormalizationForm.FormC)
+
+let removeExtraSpaces (text:string) =
+    Regex.Replace(text, @"\s+", " ")
+
+let cleanup (text:string) =
+    text.ToLowerInvariant()
+        .Replace("-", " ")
+        .Replace(".", " ")
+        .Replace(",", " ")
+    |> removeExtraSpaces
+    |> cleanupDiacritics
+
 printfn "Reading authors"
 let catalog = 
     let data = parseCsv authorsPath
@@ -28,18 +49,19 @@ let catalog =
         let id = Convert.ToInt32(x.[0])
         id,
         { AuthorId = id;
-          Name = x.[1];
+          Name = cleanup x.[1];
           Affiliation = x.[2] })
     |> Map.ofArray
 
-//catalog |> Seq.map (fun kv -> kv.Value.Name) |> Seq.countBy id |> Seq.sortBy (fun (n, c) -> -c)
+//catalog |> Seq.map (fun kv -> kv.Value.Name) |> Seq.countBy id |> Seq.sortBy (fun (n, c) -> -c) |> Seq.take 50;;
+//catalog |> Seq.filter (fun kv -> kv.Value.Name.Contains("  ")) |> Seq.toArray;;
 
 let authors = 
     catalog
     |> Seq.map (fun kv ->
         let id = kv.Key
         let auth = kv.Value
-        let name = auth.Name.ToLowerInvariant()
+        let name = auth.Name
         let chunks = vocabulary name
         let initials = chunks |> Set.map (fun c -> c.[0])
         let usableChunks = chunks |> Set.filter (fun c -> c.Length > 1)
