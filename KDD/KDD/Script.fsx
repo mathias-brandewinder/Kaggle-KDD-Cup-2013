@@ -13,6 +13,7 @@ open KDD.Model
 
 let authorsPath = @"Z:\Data\KDD-Cup\dataRev2\author.csv"
 let coauthorsPath = @"Z:\Data\KDD-Cup\dataRev2\coauthors.csv"
+let authorsArticlesPath = @"Z:\Data\KDD-Cup\dataRev2\paperauthor.csv"
 
 let options = RegexOptions.Compiled ||| RegexOptions.IgnoreCase
 let matchWords = new Regex(@"\w+", options)
@@ -20,7 +21,8 @@ let vocabulary (text: string) =
     matchWords.Matches(text)
     |> Seq.cast<Match>
     |> Seq.map (fun m -> m.Value)
-    |> Set.ofSeq
+    |> Seq.toArray
+    //|> Set.ofSeq
 
 let cleanupDiacritics (text:string) =
     let formD = text.Normalize(NormalizationForm.FormD)
@@ -63,180 +65,164 @@ let authors =
         let auth = kv.Value
         let name = auth.Name
         let chunks = vocabulary name
-        let initials = chunks |> Set.map (fun c -> c.[0])
-        let usableChunks = chunks |> Set.filter (fun c -> c.Length > 1)
-        id, initials, usableChunks)
+        let initials = chunks |> Array.map (fun c -> c.[0])
+        let usableChunks = chunks |> Array.filter (fun c -> c.Length > 1)
+        id, chunks, initials, usableChunks)
 
 printfn "Preparing author Ids"
-let authorIds = authors |> Seq.map (fun (id, _, _) -> id) |> Set.ofSeq
+let authorIds = authors |> Seq.map (fun (id, _, _, _) -> id) |> Set.ofSeq
 
 printfn "Preparing author initials"
-let initials = authors  |> Seq.map (fun (id, initials, _) -> (id, initials)) |> Map.ofSeq
+let initials = authors  |> Seq.map (fun (id, _, initials, _) -> (id, initials)) |> Map.ofSeq
 
 printfn "Preparing author 'name chunks'"
-let names = authors  |> Seq.map (fun (id, _, chunks) -> (id, chunks)) |> Map.ofSeq
-    
-printfn "Retrieving co-authors"
+let words = authors  |> Seq.map (fun (id, chunks, _, _) -> (id, chunks)) |> Map.ofSeq
 
-let coAuthors =
-    let dict = System.Collections.Generic.Dictionary<int,Set<int>>()
-    let reader = new TextFieldParser(coauthorsPath)
-    reader.TextFieldType <- FieldType.Delimited
-    reader.SetDelimiters(",")
-    let input = seq { while (not reader.EndOfData) do yield reader.ReadFields() }
-    input
-    |> Seq.iter (fun line ->        
-        let id = Convert.ToInt32(line.[0])
-        printfn "%i" id
-        let coauths = (line.[1]).Split(' ') |> Array.map (fun x -> Convert.ToInt32(x)) |> Set.ofArray
-        dict.Add(id, coauths))
-    dict
-    
-let candidatesFor (id:int) =
-    if (not (coAuthors.ContainsKey(id)))
-    then Set.empty
-    else
-        let coauths = coAuthors.[id]
-        seq { 
-            for coauthId in coauths do
-                let nextLevel = coAuthors.[coauthId]
-                for candidate in nextLevel do
-                    if (not (coauths.Contains(candidate))) then yield candidate }
-        |> Set.ofSeq
+printfn "Preparing author 'long chunks'"
+let names = authors  |> Seq.map (fun (id, _, _, chunks) -> (id, chunks)) |> Map.ofSeq
 
-// If something matches, true
-let minMatch (s1:_ Set) (s2: _ Set) =
-    s1 |> Set.exists (fun s -> s2.Contains(s))
+let lexicon (corpus:(string []) seq) =
+    seq { for doc in corpus do
+              for word in doc do yield word }
+    |> Seq.countBy id
+    |> Map.ofSeq
 
-// If more than n matches, true
-let nMatch (n:int) (s1:_ Set) (s2: _ Set) =
-    Set.intersect s1 s2 |> Set.count |> (<=) n
-
-// String-edit distance
-let levenshtein (src: string) (target: string) =
-    let min3 a b c = min a (min b c)
-    let m,n = src.Length, target.Length
-    let prev = Array.init (n+1) id
-    let nxt = Array.zeroCreate (n+1)
-    for i in 1..m do
-        nxt.[0] <- i
-        for j in 1..n do
-            if src.[i - 1] = target.[j - 1] then
-                nxt.[j] <- prev.[j - 1]
-            else
-                nxt.[j] <- min3 (prev.[j] + 1)
-                                (nxt.[j - 1] + 1)
-                                (prev.[j - 1] + 1)
-        Array.blit nxt 0 prev 0 (n+1)
-    nxt.[n]
-
-let fastOverlap (id1:int) (id2:int) =
-    let in1, in2 = initials.[id1], initials.[id2]
-    if Set.isSubset in1 in2 || Set.isSubset in2 in1 
-    then
-        let n1, n2 = names.[id1], names.[id2]
-        let m1, m2 = if (Set.count n1 < Set.count n2) then (n1, n2) else (n2, n1)
-        if Set.isEmpty m1 then false
-        elif Set.isSubset m1 m2 then true
-        else false
-    else false
-        
-let findMatches (id:int) = authorIds |> Seq.filter (fun i -> fastOverlap i id) |> Seq.toList
-    
-let namesOverlap (n1:string Set) (n2: string Set) =    
-    n1 
-    |> Seq.map (fun chunk -> 
-        n2 
-        |> Seq.map (fun c -> levenshtein c chunk)
-        |> Seq.min)
-    |> Seq.filter (fun x -> x < 2)
-    |> Seq.length
-
-let duplicates (id:int) (candidates:int Set) =
-    let myInitials = initials.[id]
-    let myChunks = names.[id]
-    seq { for candidate in candidates do
-              if authorIds.Contains(candidate) then
-                  if (nMatch 2 myInitials (initials.[candidate])) then 
-                      if ((namesOverlap names.[id] myChunks) > 1) then yield candidate }
-
-let test () =
-    let x = authorIds |> Seq.take 100        
-    for i in x do 
-        let c = candidatesFor i
-        printfn "Id: %i, dupes: %i" i (duplicates i c |> Set.ofSeq |> Set.count)
-
-//// find co-authors of co-authors
-//let merge (data: (int*Set<int>)[]) =
-//    seq {
-//        for x in data do
-//            let id, cos = x
-//            let merged =
-//                data 
-//                |> Array.filter (fun (_, coy) -> (Set.intersect cos coy).Count > 0)
-//                |> Array.map (fun (y, _) -> y)
-//                |> Set.ofArray
-//                |> Set.add (fst x)
-//            yield (id, merged) }
+// improve: query on least frequent chunk
+//let candidates (id:int) =
+//    let myInitials = initials.[id]
+//    let initialsMatches =
+//        initials 
+//        |> Map.toSeq
+//        |> Seq.filter (fun (k, v) -> (Set.count v > 0) && ((Set.isSubset v myInitials) || (Set.isSubset myInitials v)))
+//        |> Seq.map fst
+//    let myChunks = names.[id]
+//    initialsMatches
+//    |> Seq.filter (fun x -> 
+//        let chs = names.[x]
+//        Set.exists (fun c -> myChunks.Contains(c)) chs)
 //    |> Seq.toArray
-//
-//let individuals (data: (int*Set<int>)[]) =
-//    let rec more (data: (int*Set<int>)[]) =
-//        let merged = merge data
-//        if merged = data then merged else more merged
-//    more data
 
+
+type Match = Full | Partial | Unmatched
+
+let matcher (n1:string []) (n2:string []) =
+
+    let long1, short1 = n1 |> Array.map (fun c -> c, Unmatched) |> Array.partition (fun (c, _) -> c.Length > 1)
+    let long2, short2 = n2 |> Array.map (fun c -> c, Unmatched) |> Array.partition (fun (c, _) -> c.Length > 1)
+    
+    long1 
+    |> Array.iteri (fun i (c1, m1) ->
+        if (long2 |> Array.exists (fun (c2, m2) -> c2 = c1 && (m2 = Unmatched))) 
+        then
+            let j = long2 |> Array.findIndex (fun (c2, m2) -> (c2 = c1) && (m2 = Unmatched))
+            long1.[i] <- (c1, Full)
+            long2.[j] <- (c1, Full)
+        else ignore ())
+
+    long1
+    |> Array.iteri (fun i (c1, m1) ->
+        if (short2 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
+        then
+            let j = short2 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
+            let c2 = fst short2.[j]
+            long1.[i] <- (c1, Partial)
+            short2.[j] <- (c2, Partial)
+        else ignore ())
+
+    long2
+    |> Array.iteri (fun i (c1, m1) ->
+        if (short1 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
+        then
+            let j = short1 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
+            let c2 = fst short1.[j]
+            long2.[i] <- (c1, Partial)
+            short1.[j] <- (c2, Partial)
+        else ignore ())
+
+    short1
+    |> Array.iteri (fun i (c1, m1) ->
+           if m1 = Unmatched
+           then
+               if (short2 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
+               then
+                   let j = short2 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
+                   short1.[i] <- (c1, Partial)
+                   short2.[j] <- (c1, Partial)
+                else ignore ()
+           else ignore ())
+
+    let L = Array.append long1 long2
+
+    if long1 |> Array.exists (fun (c, m) -> m = Unmatched) then false
+    elif long2 |> Array.exists (fun (c, m) -> m = Unmatched) then false
+    elif L |> Array.exists (fun (c, m) -> m = Full) |> not then false
+    else true
+
+let namesLexicon = words |> Map.toSeq |> Seq.map snd |> lexicon
+
+let candidatesFor (id:int) =
+    let target = words.[id]
+    if Array.isEmpty target then [||]
+    else
+        let longName = target |> Array.minBy (fun w -> namesLexicon.[w])
+        words 
+        |> Seq.filter (fun kv -> kv.Value |> Array.exists (fun w -> w = longName))
+        |> Seq.map (fun kv -> kv.Key, words.[kv.Key])
+        |> Seq.filter (fun (id, words) -> matcher words target)
+        |> Seq.toArray
+      
 let formatAuthor (author: (int*Set<int>)) =
     let line = String.Join(" ", (snd author))
     sprintf "%i, %s" (fst author) line
 
-//let smartDupes  = seq {
-//    for group in groups do
-//        let data = 
-//            (snd group)
-//            |> Seq.map (fun auth -> auth.AuthorId, coAuthors auth.AuthorId)
-//            |> Seq.toArray
-//            |> individuals
-//        for author in data do
-//            yield (formatAuthor author) }
-//
-//let authorIds = authors |> Array.map (fun x -> x.AuthorId) |> Set.ofArray
-//let candidates (authorId:int) =
-//    let excluded = coAuthors authorId
-//    seq { for excl in excluded do 
-//              let coExcl = coAuthors excl
-//              for candidate in coExcl do yield candidate }
-//    |> Set.ofSeq
-//    |> Set.filter (fun x -> authorIds.Contains(x))
-//    |> Set.filter (fun x -> not (excluded.Contains(x)))
+printfn "Reading papers / authors"
+let papersAuthors =
+    let data = parseCsv authorsArticlesPath
+    data.[1..]
+    |> Array.map (fun x ->
+        { PaperId = Convert.ToInt32(x.[0]);
+          AuthorId = Convert.ToInt32(x.[1]) })
 
-//authors.[0..99] |> Array.map (fun a -> candidates (a.AuthorId)) |> Array.iter (fun s -> printfn "%i candidates" (Set.count s))
-//
-//let test (authorIndex:int) =
-//    let author = authors |> Array.find (fun x -> x.AuthorId = authorIndex)//authors.[authorIndex]
-//    printfn "%s" author.Name
-//    printfn ""
-//    candidates (author.AuthorId) 
-//    |> Seq.map (fun id -> 
-//        let co = authors |> Array.find (fun x -> x.AuthorId = id) 
-//        co.Name)
-//    |> Seq.sort
-//    |> Seq.iter (fun name -> printfn "%s" name)
-//
-//
-//
-//let test2 (authorId:int) =
-//    let author = authors |> Array.find (fun x -> x.AuthorId = authorId)//authors.[authorIndex]
-//    let authorInitials = initials.[authorId]
-//    printfn "%s" author.Name
-//    printfn ""
-//    candidates (author.AuthorId) 
-//    |> Set.filter (fun x -> (Set.intersect initials.[x] authorInitials).Count > 0)
-//    |> Seq.map (fun id -> 
-//        let co = authors |> Array.find (fun x -> x.AuthorId = id) 
-//        co.Name)
-//    |> Seq.sort
-//    |> Seq.iter (fun name -> printfn "%s" name)
-//
-//let submitPath = @"C:\users\mathias\desktop\submit3.csv"
-//let submit = File.WriteAllLines(submitPath, (smartDupes |> Seq.toArray))    
+printfn "Prepare papers by author"
+let papersByAuthor =
+    papersAuthors 
+    |> Seq.groupBy (fun x -> x.AuthorId)
+    |> Seq.map (fun (authorId, data) ->
+        authorId, data |> Seq.map (fun x -> x.PaperId) |> Set.ofSeq)
+    |> Map.ofSeq
+
+printfn "Prepare authors by paper"
+let authorsOfPaper =
+    papersAuthors 
+    |> Seq.groupBy (fun x -> x.PaperId)
+    |> Seq.map (fun (paperId, data) ->
+        paperId, data |> Seq.map (fun x -> x.AuthorId) |> Set.ofSeq)
+    |> Map.ofSeq
+    
+let coAuthors (authorId:int) =
+    let found = Map.tryFind authorId papersByAuthor
+    match found with
+    | None -> Set.empty
+    | Some(papers) -> 
+        seq { for paperId in papers do 
+                  let authors = authorsOfPaper.[paperId]
+                  for authorId in authors do yield authorId }
+        |> Set.ofSeq
+
+let cleverDupes (id:int) =
+    printfn "%i" id
+    let coauths = coAuthors id
+    let candidates = 
+        candidatesFor id 
+        |> Array.map fst
+        |> Array.filter (fun x -> 
+            let cox = coAuthors x
+            (Set.intersect coauths cox).Count > 0)
+    id, candidates |> Set.ofArray |> Set.add id 
+
+let test = 
+    let ids = authorIds |> Seq.take 100 |> Seq.toArray
+    ids |> Array.Parallel.map (fun id -> cleverDupes id |> formatAuthor)
+
+let submitPath = @"C:\users\mathias\desktop\submit5.csv"
+let submit = File.WriteAllLines(submitPath, (authorIds |> Set.toArray |> Array.Parallel.map (fun id -> cleverDupes id |> formatAuthor)))    
