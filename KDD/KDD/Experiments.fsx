@@ -172,3 +172,19 @@ let matcher2 (n1:string []) (n2:string []) =
        for c in long2 do yield c
        for c in short1 do yield c
        for c in short2 do yield c |]
+
+let dupes (target:int*(int Set)) (candidates:(int*(int Set))[]) =
+    let rec find (ids:int Set) (coAuths:int Set) (candidates:(int*(int Set))[]) =
+        let incl, excl = candidates |> Array.partition (fun (id, cs) -> (Set.intersect coAuths cs) |> Set.count > 0)
+        if (Array.length incl = 0) then ids
+        else
+            let inclIds, inclCoauths = Array.unzip incl
+            let ids' = Set.union ids (Set.ofArray inclIds)
+            let coAuths' = Set.unionMany [ coAuths; yield! inclCoauths ]
+            find ids' coAuths' excl
+    find ([fst target] |> Set.ofList) (snd target) candidates
+
+let t = (1,[10]|>Set.ofList)
+let c1 = (2,[10;11]|>Set.ofList)
+let c2 = (3,[11]|>Set.ofList)
+let cs = [|c1;c2|]

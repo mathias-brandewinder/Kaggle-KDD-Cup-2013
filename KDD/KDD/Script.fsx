@@ -55,9 +55,6 @@ let catalog =
           Affiliation = x.[2] })
     |> Map.ofArray
 
-//catalog |> Seq.map (fun kv -> kv.Value.Name) |> Seq.countBy id |> Seq.sortBy (fun (n, c) -> -c) |> Seq.take 50;;
-//catalog |> Seq.filter (fun kv -> kv.Value.Name.Contains("  ")) |> Seq.toArray;;
-
 let authors = 
     catalog
     |> Seq.map (fun kv ->
@@ -86,22 +83,6 @@ let lexicon (corpus:(string []) seq) =
               for word in doc do yield word }
     |> Seq.countBy id
     |> Map.ofSeq
-
-// improve: query on least frequent chunk
-//let candidates (id:int) =
-//    let myInitials = initials.[id]
-//    let initialsMatches =
-//        initials 
-//        |> Map.toSeq
-//        |> Seq.filter (fun (k, v) -> (Set.count v > 0) && ((Set.isSubset v myInitials) || (Set.isSubset myInitials v)))
-//        |> Seq.map fst
-//    let myChunks = names.[id]
-//    initialsMatches
-//    |> Seq.filter (fun x -> 
-//        let chs = names.[x]
-//        Set.exists (fun c -> myChunks.Contains(c)) chs)
-//    |> Seq.toArray
-
 
 type Match = Full | Partial | Unmatched
 
@@ -209,20 +190,29 @@ let coAuthors (authorId:int) =
                   for authorId in authors do yield authorId }
         |> Set.ofSeq
 
+let dupes (target:int*(int Set)) (candidates:(int*(int Set))[]) =
+    let rec find (ids:int Set) (coAuths:int Set) (candidates:(int*(int Set))[]) =
+        let incl, excl = candidates |> Array.partition (fun (id, cs) -> (Set.intersect coAuths cs) |> Set.count > 0)
+        if (Array.length incl = 0) then ids
+        else
+            let inclIds, inclCoauths = Array.unzip incl
+            let ids' = Set.union ids (Set.ofArray inclIds)
+            let coAuths' = Set.unionMany [ coAuths; yield! inclCoauths ]
+            find ids' coAuths' excl
+    find ([fst target] |> Set.ofList) (snd target) candidates
+
 let cleverDupes (id:int) =
     printfn "%i" id
     let coauths = coAuthors id
     let candidates = 
         candidatesFor id 
         |> Array.map fst
-        |> Array.filter (fun x -> 
-            let cox = coAuthors x
-            (Set.intersect coauths cox).Count > 0)
-    id, candidates |> Set.ofArray |> Set.add id 
+        |> Array.map (fun x -> x, coAuthors x)
+    id, dupes (id, coauths) candidates
 
 let test = 
-    let ids = authorIds |> Seq.take 100 |> Seq.toArray
+    let ids = authorIds |> Seq.take 1000 |> Seq.toArray
     ids |> Array.Parallel.map (fun id -> cleverDupes id |> formatAuthor)
 
-let submitPath = @"C:\users\mathias\desktop\submit5.csv"
+let submitPath = @"C:\users\mathias\desktop\submit6.csv"
 let submit = File.WriteAllLines(submitPath, (authorIds |> Set.toArray |> Array.Parallel.map (fun id -> cleverDupes id |> formatAuthor)))    
