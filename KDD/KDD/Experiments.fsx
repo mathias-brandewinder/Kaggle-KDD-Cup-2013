@@ -56,3 +56,137 @@ authors.[0..20]
 papersAuthors 
 |> Array.filter (fun x -> x.AuthorId = 14)
 
+let combine (xs: int[]) =
+    seq { for x in 0 .. (Array.length xs - 2) do
+              for y in (x + 1) .. (Array.length xs - 1) do yield (xs.[x], xs.[y]) }
+
+let name1 = [| "John"; "Doe" |]
+let name2 = [| "J"; "A"; "Doe" |]
+
+type Match = Full | Partial | Unmatched
+
+let matcher (n1:string []) (n2:string []) =
+
+    let matches1 = n1 |> Array.map (fun c -> c, Unmatched)
+    let matches2 = n2 |> Array.map (fun c -> c, Unmatched)
+    
+    matches1 
+    |> Array.iteri (fun i (c1, m1) ->
+           if c1.Length > 1 
+           then
+               if (matches2 |> Array.exists (fun (c2, m2) -> c2 = c1 && (m2 = Unmatched))) 
+               then
+                   let j = matches2 |> Array.findIndex (fun (c2, m2) -> (c2 = c1) && (m2 = Unmatched))
+                   matches1.[i] <- (c1, Full)
+                   matches2.[j] <- (c1, Full)
+                else ignore ()
+            else ignore ())
+
+    matches1
+    |> Array.iteri (fun i (c1, m1) ->
+           if c1.Length > 1 && m1 = Unmatched
+           then
+               if (matches2 |> Array.exists (fun (c2, m2) -> c2.Length = 1 && c1.[0] = c2.[0] && (m2 = Unmatched)))
+               then
+                   let j = matches2 |> Array.findIndex (fun (c2, m2) -> c2.Length = 1 && c1.[0] = c2.[0] && (m2 = Unmatched))
+                   let c2 = fst matches2.[j]
+                   matches1.[i] <- (c1, Partial)
+                   matches2.[j] <- (c2, Partial)
+                else ignore ()
+           else ignore ())
+
+    matches2
+    |> Array.iteri (fun i (c1, m1) ->
+           if c1.Length > 1 && m1 = Unmatched
+           then
+               if (matches1 |> Array.exists (fun (c2, m2) -> c2.Length = 1 && c1.[0] = c2.[0] && (m2 = Unmatched)))
+               then
+                   let j = matches1 |> Array.findIndex (fun (c2, m2) -> c2.Length = 1 && c1.[0] = c2.[0] && (m2 = Unmatched))
+                   let c2 = fst matches1.[j]
+                   matches2.[i] <- (c1, Partial)
+                   matches1.[j] <- (c2, Partial)
+                else ignore ()
+           else ignore ())
+
+    matches1
+    |> Array.iteri (fun i (c1, m1) ->
+           if c1.Length = 1 && m1 = Unmatched
+           then
+               if (matches2 |> Array.exists (fun (c2, m2) -> c2.Length = 1 && c1.[0] = c2.[0] && (m2 = Unmatched)))
+               then
+                   let j = matches2 |> Array.findIndex (fun (c2, m2) -> c2.Length = 1 && c1.[0] = c2.[0] && (m2 = Unmatched))
+                   let c2 = fst matches2.[j]
+                   matches1.[i] <- (c1, Partial)
+                   matches2.[j] <- (c2, Partial)
+                else ignore ()
+           else ignore ())
+
+    matches1, matches2
+
+let matcher2 (n1:string []) (n2:string []) =
+
+    let long1, short1 = n1 |> Array.map (fun c -> c, Unmatched) |> Array.partition (fun (c, _) -> c.Length > 1)
+    let long2, short2 = n2 |> Array.map (fun c -> c, Unmatched) |> Array.partition (fun (c, _) -> c.Length > 1)
+    
+    long1 
+    |> Array.iteri (fun i (c1, m1) ->
+        if (long2 |> Array.exists (fun (c2, m2) -> c2 = c1 && (m2 = Unmatched))) 
+        then
+            let j = long2 |> Array.findIndex (fun (c2, m2) -> (c2 = c1) && (m2 = Unmatched))
+            long1.[i] <- (c1, Full)
+            long2.[j] <- (c1, Full)
+        else ignore ())
+
+    long1
+    |> Array.iteri (fun i (c1, m1) ->
+        if (short2 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
+        then
+            let j = short2 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
+            let c2 = fst short2.[j]
+            long1.[i] <- (c1, Partial)
+            short2.[j] <- (c2, Partial)
+        else ignore ())
+
+    long2
+    |> Array.iteri (fun i (c1, m1) ->
+        if (short1 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
+        then
+            let j = short1 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
+            let c2 = fst short1.[j]
+            long2.[i] <- (c1, Partial)
+            short1.[j] <- (c2, Partial)
+        else ignore ())
+
+    short1
+    |> Array.iteri (fun i (c1, m1) ->
+           if m1 = Unmatched
+           then
+               if (short2 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
+               then
+                   let j = short2 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
+                   short1.[i] <- (c1, Partial)
+                   short2.[j] <- (c1, Partial)
+                else ignore ()
+           else ignore ())
+    [| for c in long1 do yield c
+       for c in long2 do yield c
+       for c in short1 do yield c
+       for c in short2 do yield c |]
+
+// String-edit distance
+let levenshtein (src: string) (target: string) =
+    let min3 a b c = min a (min b c)
+    let m,n = src.Length, target.Length
+    let prev = Array.init (n+1) id
+    let nxt = Array.zeroCreate (n+1)
+    for i in 1..m do
+        nxt.[0] <- i
+        for j in 1..n do
+            if src.[i - 1] = target.[j - 1] then
+                nxt.[j] <- prev.[j - 1]
+            else
+                nxt.[j] <- min3 (prev.[j] + 1)
+                                (nxt.[j - 1] + 1)
+                                (prev.[j - 1] + 1)
+        Array.blit nxt 0 prev 0 (n+1)
+    nxt.[n]
