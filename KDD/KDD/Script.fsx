@@ -37,8 +37,40 @@ let cleanupDiacritics (text:string) =
 let removeExtraSpaces (text:string) =
     Regex.Replace(text, @"\s+", " ")
 
+let mistakes = [
+    "Grudzi   nski", "Grudzinski";
+    "P   erez", "Perez";
+    "GONZ   ALEZ", "GONZALEZ";
+    "Kratochv   ol", "Kratochvol"
+    "Jos   e", "Jose";
+    "Mart   i", "Marti";
+    "V   ictor", "Victor";
+    "Rodr   iguez", "Rodriguez";
+    "FERN   ANDEZ", "FERNANDEZ";
+    "Horv   ath", "Horvath";
+    "JURDZI   NSKI", "JURDZINSKI";
+    "Garc   ia", "Garcia";
+    "Garc   ia", "Garcia";
+    "Joaqu   on", "Joaquon";
+    "Mart   i", "Marti";
+    "Garc   ia", "Garcia";
+    "Quintana-Ort   i", "Quintana-Orti";
+    "M   erouane", "Merouane";
+    "M   erouane", "Merouane";
+    "Jim   enez", "Jimenez";
+    "FERN   ANDEZ", "FERNANDEZ";
+    "Ram   irez", "Ramirez";
+    "Mart   onez", "Martonez";
+    "M   emin", "Memin";
+    "Mart   inez", "Martinez";
+    "Rodr   iguez", "Rodriguez" ] |> Map.ofList
+
+let removeMistakes (text:string) =
+    mistakes |> Map.fold (fun (t:string) k v -> t.Replace(k, v)) text
+
 let cleanup (text:string) =
-    text.ToLowerInvariant()
+    (removeMistakes text)
+        .ToLowerInvariant()
         .Replace("-", " ")
         .Replace(".", " ")
         .Replace(",", " ")
@@ -115,19 +147,12 @@ let authorsOfPaper =
 
 printfn "Prepare misspellings table"
 
-let closeNames = 
-    parseCsv closeNamesPath
-    |> Seq.map (fun line -> line.[0], line.[1])
-    |> Seq.map (fun (w1, w2) -> 
-           if namesLexicon.[w1] < namesLexicon.[w2] 
-           then w1, w2 
-           else w2, w1)
-    |> Seq.toArray
-
-let misspellings =
-    closeNames
-    |> Seq.filter (fun (w1, w2) -> 
-           namesLexicon.[w1] < 5 * namesLexicon.[w2])
+let misspellings = 
+    seq { let pairs = parseCsv closeNamesPath |> Seq.map (fun line -> line.[0], line.[1])
+          for (w1, w2) in pairs do 
+              if w1.Length >= 5 && w2.Length >= 5 && w1.[0] = w2.[0] then
+                  yield (w1, w2)
+                  yield (w2, w1) }
     |> Seq.groupBy fst
     |> Seq.map (fun (w, ws) -> w, ws |> Seq.map snd |> Set.ofSeq )
     |> Map.ofSeq
@@ -182,20 +207,19 @@ let matcher (n1:string []) (n2:string []) =
                    short2.[j] <- (c1, Partial)
                 else ignore ()
            else ignore ())
-
-    let L = Array.append long1 long2
-
+   
     if long1 |> Array.exists (fun (c, m) -> m = Unmatched) then false
     elif long2 |> Array.exists (fun (c, m) -> m = Unmatched) then false
-    elif L |> Array.exists (fun (c, m) -> m = Full) |> not then false
+    elif Array.append long1 long2 |> Array.exists (fun (c, m) -> m = Full) |> not then false
+    elif short1 |> Array.exists (fun (c, m) -> m = Unmatched) && short2 |> Array.exists (fun (c, m) -> m = Unmatched) then false
     else true
 
 let matchesForName (target:string[]) =
     if Array.isEmpty target then [||]
     else
-        let longName = target |> Array.minBy (fun w -> namesLexicon.[w])
+        let mostSpecificName = target |> Array.minBy (fun w -> namesLexicon.[w])
         words 
-        |> Seq.filter (fun kv -> kv.Value |> Array.exists (fun w -> w = longName))
+        |> Seq.filter (fun kv -> kv.Value |> Array.exists (fun w -> w = mostSpecificName))
         |> Seq.map (fun kv -> kv.Key, words.[kv.Key])
         |> Seq.filter (fun (id, words) -> matcher words target)
         |> Seq.toArray
@@ -249,10 +273,17 @@ let formatAuthor (author: (int*Set<int>)) =
     let line = String.Join(" ", (snd author))
     sprintf "%i, %s" (fst author) line
 
-let test = 
-    let ids = authorIds |> Seq.take 500 |> Seq.toArray
-    ids |> Array.Parallel.map (fun id -> cleverDupes id)// |> formatAuthor)
+//let test = 
+//    let ids = authorIds |> Seq.take 1000 |> Seq.toArray
+//    ids 
+//    |> Array.Parallel.map (fun id -> cleverDupes id)
+//    |> Array.filter (fun (id, dupes) -> Set.count dupes > 1)
+//    |> Array.iter (fun (id, dupes) -> 
+//           printfn "%i %s" id (catalog.[id].Name)
+//           dupes |> Set.iter (fun d -> printfn "    %i %s" d (catalog.[d].Name)))
+
+
 
 let results = authorIds |> Set.toArray |> Array.Parallel.map (fun id -> cleverDupes id |> formatAuthor)
-let submitPath = root + "submit7.csv"
+let submitPath = root + "submit8.csv"
 let submit = File.WriteAllLines(submitPath, results)  

@@ -46,6 +46,7 @@
     <None Include="Script.fsx" />
     <None Include="Experiments.fsx" />
     <None Include="Coauthors.fsx" />
+    <None Include="CloseNames.fsx" />
   </ItemGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
