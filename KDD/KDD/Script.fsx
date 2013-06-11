@@ -1,5 +1,5 @@
 ﻿#r @"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.5\Microsoft.VisualBasic.dll"
-#load "Library1.fs"
+#load "Model.fs"
 #time
 
 open System
@@ -109,9 +109,6 @@ let initials = authors  |> Seq.map (fun (id, _, initials, _) -> (id, initials)) 
 printfn "Preparing author 'name chunks'"
 let words = authors  |> Seq.map (fun (id, chunks, _, _) -> (id, chunks)) |> Map.ofSeq
 
-printfn "Preparing author 'long chunks'"
-let names = authors  |> Seq.map (fun (id, _, _, chunks) -> (id, chunks)) |> Map.ofSeq
-
 printfn "Preparing names lexicon"
 let lexicon (corpus:(string []) seq) =
     seq { for doc in corpus do
@@ -119,7 +116,8 @@ let lexicon (corpus:(string []) seq) =
     |> Seq.countBy id
     |> Map.ofSeq
 
-let namesLexicon = words |> Map.toSeq |> Seq.map snd |> lexicon
+let namesLexicon = words |> Map.toSeq |> Seq.map snd |> lexicon |> Map.add "kratochv" 1
+
 
 printfn "Reading papers / authors"
 let papersAuthors =
@@ -159,70 +157,33 @@ let misspellings =
 
 printfn "Data fully loaded"
 
-
-type Match = Full | Partial | Unmatched
-
-let matcher (n1:string []) (n2:string []) =
-
-    let long1, short1 = n1 |> Array.map (fun c -> c, Unmatched) |> Array.partition (fun (c, _) -> c.Length > 1)
-    let long2, short2 = n2 |> Array.map (fun c -> c, Unmatched) |> Array.partition (fun (c, _) -> c.Length > 1)
-    
-    long1 
-    |> Array.iteri (fun i (c1, m1) ->
-        if (long2 |> Array.exists (fun (c2, m2) -> c2 = c1 && (m2 = Unmatched))) 
-        then
-            let j = long2 |> Array.findIndex (fun (c2, m2) -> (c2 = c1) && (m2 = Unmatched))
-            long1.[i] <- (c1, Full)
-            long2.[j] <- (c1, Full)
-        else ignore ())
-
-    long1
-    |> Array.iteri (fun i (c1, m1) ->
-        if (short2 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
-        then
-            let j = short2 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
-            let c2 = fst short2.[j]
-            long1.[i] <- (c1, Partial)
-            short2.[j] <- (c2, Partial)
-        else ignore ())
-
-    long2
-    |> Array.iteri (fun i (c1, m1) ->
-        if (short1 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
-        then
-            let j = short1 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
-            let c2 = fst short1.[j]
-            long2.[i] <- (c1, Partial)
-            short1.[j] <- (c2, Partial)
-        else ignore ())
-
-    short1
-    |> Array.iteri (fun i (c1, m1) ->
-           if m1 = Unmatched
-           then
-               if (short2 |> Array.exists (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched)))
-               then
-                   let j = short2 |> Array.findIndex (fun (c2, m2) -> c1.[0] = c2.[0] && (m2 = Unmatched))
-                   short1.[i] <- (c1, Partial)
-                   short2.[j] <- (c1, Partial)
-                else ignore ()
-           else ignore ())
-   
-    if long1 |> Array.exists (fun (c, m) -> m = Unmatched) then false
-    elif long2 |> Array.exists (fun (c, m) -> m = Unmatched) then false
-    elif Array.append long1 long2 |> Array.exists (fun (c, m) -> m = Full) |> not then false
-    elif short1 |> Array.exists (fun (c, m) -> m = Unmatched) && short2 |> Array.exists (fun (c, m) -> m = Unmatched) then false
-    else true
-
 let matchesForName (target:string[]) =
-    if Array.isEmpty target then [||]
+    let target = target |> Array.filter (fun w -> w.Length > 1)
+    if Array.isEmpty target then [||]    
     else
         let mostSpecificName = target |> Array.minBy (fun w -> namesLexicon.[w])
-        words 
-        |> Seq.filter (fun kv -> kv.Value |> Array.exists (fun w -> w = mostSpecificName))
-        |> Seq.map (fun kv -> kv.Key, words.[kv.Key])
-        |> Seq.filter (fun (id, words) -> matcher words target)
-        |> Seq.toArray
+        if Array.length target > 1 && namesLexicon.[mostSpecificName] > 100 then
+            let target = target |> Array.sortBy (fun w -> namesLexicon.[w])
+            let w1 = target.[0]
+            let w2 = target.[1]
+            let i1 = (string)w1.[0]
+            let i2 = (string)w2.[0]
+            let s1 = [w1;w2] |> Set.ofList
+            let s2 = [w1;i2] |> Set.ofList
+            let s3 = [i1;w2] |> Set.ofList
+            let isMatch s1 s2 s3 S =
+                Set.isSuperset S s1 || Set.isSuperset S s2 || Set.isSuperset S s3
+            words 
+            |> Seq.filter (fun kv -> Set.ofArray kv.Value |> isMatch s1 s2 s3)
+            |> Seq.map (fun kv -> kv.Key, words.[kv.Key])
+            |> Seq.filter (fun (id, words) -> Model.matcher words target)
+            |> Seq.toArray
+        else
+            words 
+            |> Seq.filter (fun kv -> kv.Value |> Array.exists (fun w -> w = mostSpecificName))
+            |> Seq.map (fun kv -> kv.Key, words.[kv.Key])
+            |> Seq.filter (fun (id, words) -> matcher words target)
+            |> Seq.toArray
 
 let likelyMisspellingsFor (target:string[]) =
     if target = Array.empty then Seq.empty
@@ -242,6 +203,7 @@ let likelyMisspellingsFor (target:string[]) =
 let candidatesFor (id:int) =
     let target = words.[id]
     let misspelled = likelyMisspellingsFor target
+
     seq { yield! matchesForName target
           for alternate in misspelled do yield! (matchesForName alternate) }
     |> Seq.toArray
@@ -256,6 +218,10 @@ let coAuthors (authorId:int) =
                   for authorId in authors do yield authorId }
         |> Set.ofSeq
 
+let similarity (first:int Set) (second: int Set) =
+    let inter = Set.intersect first second
+    (float)(Set.count inter) / (float)(min (Set.count first) (Set.count second))
+
 let cleverDupes (id:int) =
     printfn "%i" id
     let coauths = coAuthors id
@@ -264,7 +230,7 @@ let cleverDupes (id:int) =
         |> Array.map fst
         |> Array.filter (fun x -> 
             let cox = coAuthors x
-            (Set.intersect coauths cox).Count > 0)
+            similarity coauths cox > 0.01)
     id, candidates |> Set.ofArray |> Set.add id 
 
 // File creation
@@ -273,17 +239,32 @@ let formatAuthor (author: (int*Set<int>)) =
     let line = String.Join(" ", (snd author))
     sprintf "%i, %s" (fst author) line
 
-//let test = 
-//    let ids = authorIds |> Seq.take 1000 |> Seq.toArray
-//    ids 
-//    |> Array.Parallel.map (fun id -> cleverDupes id)
-//    |> Array.filter (fun (id, dupes) -> Set.count dupes > 1)
-//    |> Array.iter (fun (id, dupes) -> 
-//           printfn "%i %s" id (catalog.[id].Name)
-//           dupes |> Set.iter (fun d -> printfn "    %i %s" d (catalog.[d].Name)))
+let check (id:int) =
+    let coauth = coAuthors id
+    let dupes = cleverDupes id
+    printfn "%i %s" id (catalog.[id].Name)
+    dupes 
+    |> snd
+    |> Set.iter (fun d -> 
+               let coauth = coAuthors id
+               let other = coAuthors d
+               printfn "    %i %s %.3f" d (catalog.[d].Name) (similarity coauth other))
+
+let test = 
+    let ids = authorIds |> Seq.take 1000 |> Seq.toArray
+    ids 
+    |> Array.Parallel.map (fun id -> cleverDupes id)
+    |> Array.filter (fun (id, dupes) -> Set.count dupes > 1)
+    |> Array.iter (fun (id, dupes) -> 
+           printfn "%i %s" id (catalog.[id].Name)
+           dupes 
+           |> Set.iter (fun d -> 
+               let coauth = coAuthors id
+               let other = coAuthors d
+               printfn "    %i %s %.3f" d (catalog.[d].Name) (similarity coauth other) ))
 
 
 
 let results = authorIds |> Set.toArray |> Array.Parallel.map (fun id -> cleverDupes id |> formatAuthor)
-let submitPath = root + "submit8.csv"
+let submitPath = root + "submit11.csv"
 let submit = File.WriteAllLines(submitPath, results)  
